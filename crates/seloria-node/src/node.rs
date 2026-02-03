@@ -163,6 +163,7 @@ impl Node {
             Arc::clone(&self.broadcaster),
             self.validator_keypair.clone(),
             self.issuer_keypair.clone(),
+            Some(self.config.data_dir.join("state.bin")),
         );
 
         let rpc_router = rpc_server.router();

@@ -1,7 +1,12 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
+use axum::body::Body;
+use axum::http::{header, HeaderMap, StatusCode};
+use axum::response::Response;
 use axum::Json;
+use async_compression::tokio::bufread::GzipEncoder;
 use seloria_consensus::{
     verify_qc, BlockBuilder, BlockBuilderConfig, CommitRequest, CommitResponse, ProposeRequest,
     ProposeResponse, Validator,
@@ -10,7 +15,9 @@ use seloria_core::{Account, Block, Claim, Hash, KeyPair, KvValue, PublicKey, Tra
 use seloria_mempool::Mempool;
 use seloria_state::{ChainState, Storage};
 use serde::{Deserialize, Serialize};
+use tokio::io::BufReader;
 use tokio::sync::RwLock;
+use tokio_util::io::ReaderStream;
 use tracing::info;
 
 use crate::error::RpcError;
@@ -23,6 +30,7 @@ pub struct AppState<S: Storage> {
     pub broadcaster: Arc<EventBroadcaster>,
     pub validator_keypair: Option<Arc<tokio::sync::Mutex<KeyPair>>>,
     pub issuer_keypair: Option<Arc<tokio::sync::Mutex<KeyPair>>>,
+    pub snapshot_path: Option<PathBuf>,
 }
 
 // Response types
@@ -89,6 +97,19 @@ pub struct KvKeysResponse {
     pub keys: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SnapshotMetaResponse {
+    pub chain_id: u64,
+    pub height: u64,
+    pub head_block_hash: Option<String>,
+    pub snapshot_size: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SnapshotPublishResponse {
+    pub download_url: String,
+}
+
 // Request types
 
 #[derive(Debug, Deserialize)]
@@ -131,6 +152,116 @@ pub async fn get_status<S: Storage + Send + Sync>(
         head_block_hash,
         mempool_size,
     }))
+}
+
+/// GET /snapshot/meta - Get snapshot metadata
+pub async fn get_snapshot_meta<S: Storage + Send + Sync>(
+    State(state): State<Arc<AppState<S>>>,
+) -> Result<Json<SnapshotMetaResponse>, RpcError> {
+    let chain_state = state.chain_state.read().await;
+
+    let head_block_hash = if let Some(ref block) = chain_state.head_block {
+        Some(block.hash().map(|h| h.to_hex()).unwrap_or_default())
+    } else {
+        None
+    };
+
+    let snapshot_size = if let Some(path) = &state.snapshot_path {
+        match tokio::fs::metadata(path).await {
+            Ok(meta) => Some(meta.len()),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    Ok(Json(SnapshotMetaResponse {
+        chain_id: chain_state.chain_id,
+        height: chain_state.height,
+        head_block_hash,
+        snapshot_size,
+    }))
+}
+
+/// GET /snapshot - Download latest snapshot file
+pub async fn get_snapshot<S: Storage + Send + Sync>(
+    State(state): State<Arc<AppState<S>>>,
+    headers: HeaderMap,
+) -> Result<Response, RpcError> {
+    let path = state.snapshot_path.as_ref().ok_or_else(|| {
+        RpcError::NotFound("Snapshot not available on this node".to_string())
+    })?;
+
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|_| RpcError::NotFound("Snapshot file not found".to_string()))?;
+
+    let accept_encoding = headers
+        .get(header::ACCEPT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    let (body, content_encoding) = if accept_encoding.contains("gzip") {
+        let reader = BufReader::new(file);
+        let encoder = GzipEncoder::new(reader);
+        let stream = ReaderStream::new(encoder);
+        (Body::from_stream(stream), Some("gzip"))
+    } else {
+        let stream = ReaderStream::new(file);
+        (Body::from_stream(stream), None)
+    };
+
+    let mut response = Response::new(body);
+    *response.status_mut() = StatusCode::OK;
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, header::HeaderValue::from_static("application/octet-stream"));
+    if let Some(encoding) = content_encoding {
+        response.headers_mut().insert(
+            header::CONTENT_ENCODING,
+            header::HeaderValue::from_static(encoding),
+        );
+    }
+    Ok(response)
+}
+
+/// POST /snapshot/publish - Upload snapshot to a presigned URL and return download URL
+pub async fn publish_snapshot<S: Storage + Send + Sync>(
+    State(state): State<Arc<AppState<S>>>,
+) -> Result<Json<SnapshotPublishResponse>, RpcError> {
+    let upload_url = std::env::var("SNAPSHOT_UPLOAD_URL")
+        .map_err(|_| RpcError::BadRequest("SNAPSHOT_UPLOAD_URL not set".to_string()))?;
+    let download_url = std::env::var("SNAPSHOT_DOWNLOAD_URL")
+        .map_err(|_| RpcError::BadRequest("SNAPSHOT_DOWNLOAD_URL not set".to_string()))?;
+
+    let path = state.snapshot_path.as_ref().ok_or_else(|| {
+        RpcError::NotFound("Snapshot not available on this node".to_string())
+    })?;
+
+    let file = tokio::fs::File::open(path)
+        .await
+        .map_err(|_| RpcError::NotFound("Snapshot file not found".to_string()))?;
+    let stream = ReaderStream::new(file);
+
+    let client = reqwest::Client::new();
+    let response = client
+        .put(upload_url)
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(reqwest::Body::wrap_stream(stream))
+        .send()
+        .await
+        .map_err(|e| RpcError::Internal(format!("Snapshot upload failed: {}", e)))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(RpcError::Internal(format!(
+            "Snapshot upload failed: {} {}",
+            status, body
+        )));
+    }
+
+    Ok(Json(SnapshotPublishResponse { download_url }))
 }
 
 /// POST /tx - Submit a transaction

@@ -9,8 +9,9 @@ mod cli;
 mod config;
 mod node;
 mod txgen;
+mod snapshot;
 
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, SnapshotCommands};
 use config::{generate_sample_config, NodeConfig};
 use node::Node;
 
@@ -43,6 +44,9 @@ async fn main() -> Result<()> {
         }
         Commands::Txgen { command } => {
             txgen::handle_txgen(command)?;
+        }
+        Commands::Snapshot { command } => {
+            handle_snapshot(command).await?;
         }
     }
 
@@ -145,6 +149,17 @@ async fn submit_transaction(endpoint: &str, file: PathBuf) -> Result<()> {
         let error: serde_json::Value = response.json().await?;
         error!("Failed to submit transaction:");
         println!("{}", serde_json::to_string_pretty(&error)?);
+    }
+
+    Ok(())
+}
+
+/// Handle snapshot commands
+async fn handle_snapshot(command: SnapshotCommands) -> Result<()> {
+    match command {
+        SnapshotCommands::Pull { endpoint, out } => {
+            snapshot::download_snapshot(&endpoint, out).await?;
+        }
     }
 
     Ok(())

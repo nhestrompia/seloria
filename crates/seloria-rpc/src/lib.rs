@@ -55,6 +55,7 @@ impl<S: Storage + Send + Sync + Clone + 'static> RpcServer<S> {
         broadcaster: Arc<EventBroadcaster>,
         validator_keypair: Option<Arc<tokio::sync::Mutex<seloria_core::KeyPair>>>,
         issuer_keypair: Option<Arc<tokio::sync::Mutex<seloria_core::KeyPair>>>,
+        snapshot_path: Option<std::path::PathBuf>,
     ) -> Self {
         let app_state = Arc::new(AppState {
             chain_state,
@@ -62,6 +63,7 @@ impl<S: Storage + Send + Sync + Clone + 'static> RpcServer<S> {
             broadcaster,
             validator_keypair,
             issuer_keypair,
+            snapshot_path,
         });
 
         RpcServer { config, app_state }
@@ -113,6 +115,7 @@ mod tests {
             chain_state,
             mempool,
             broadcaster,
+            None,
             None,
             None,
         );

@@ -62,6 +62,25 @@ pub enum Commands {
         #[command(subcommand)]
         command: TxGenCommands,
     },
+
+    /// Snapshot utilities
+    Snapshot {
+        #[command(subcommand)]
+        command: SnapshotCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SnapshotCommands {
+    /// Download a snapshot from a node
+    Pull {
+        /// RPC endpoint
+        #[arg(short, long, default_value = "http://127.0.0.1:8080")]
+        endpoint: String,
+        /// Output file path
+        #[arg(short, long, default_value = "seloria-data/state.bin")]
+        out: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

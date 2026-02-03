@@ -8,7 +8,8 @@ use tower_http::trace::TraceLayer;
 
 use super::handlers::{
     consensus_commit, consensus_propose, get_account, get_block, get_claim, get_kv,
-    get_status, get_tx, issue_certificate, list_kv_keys, submit_tx, AppState,
+    get_snapshot, get_snapshot_meta, get_status, get_tx, issue_certificate, list_kv_keys,
+    publish_snapshot, submit_tx, AppState,
 };
 
 /// Create the HTTP router
@@ -22,6 +23,9 @@ pub fn create_router<S: Storage + Send + Sync + Clone + 'static>(
 
     Router::new()
         .route("/status", get(get_status::<S>))
+        .route("/snapshot/meta", get(get_snapshot_meta::<S>))
+        .route("/snapshot", get(get_snapshot::<S>))
+        .route("/snapshot/publish", post(publish_snapshot::<S>))
         .route("/tx", post(submit_tx::<S>))
         .route("/tx/{hash}", get(get_tx::<S>))
         .route("/account/{pubkey}", get(get_account::<S>))
