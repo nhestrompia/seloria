@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use seloria_consensus::{BlockEventSink, Proposer, ProposerConfig, ValidatorEndpoint};
 use seloria_core::{Block, KeyPair, SecretKey};
+use seloria_core::{AgentCertificate, Hash, SignedAgentCertificate, Transaction, Op};
 use seloria_mempool::{Mempool, MempoolConfig};
 use seloria_rpc::{RpcConfig, RpcServer, WsEvent};
 use seloria_rpc::ws::EventBroadcaster;
@@ -21,6 +22,7 @@ pub struct Node {
     validator_keypair: Option<Arc<Mutex<KeyPair>>>,
     validator_endpoints: Vec<ValidatorEndpoint>,
     issuer_keypair: Option<Arc<Mutex<KeyPair>>>,
+    faucet_keypair: Option<Arc<Mutex<KeyPair>>>,
 }
 
 struct RpcEventSink {
@@ -78,6 +80,14 @@ impl Node {
             None
         };
 
+        let faucet_keypair = if let Some(ref key_hex) = config.faucet_secret {
+            let secret = SecretKey::from_hex(key_hex)?;
+            let public = secret.public_key();
+            Some(Arc::new(Mutex::new(KeyPair { secret, public })))
+        } else {
+            None
+        };
+
         // Create state
         let storage_path = config.data_dir.join("state.bin");
         let storage = FileStorage::new(storage_path)?;
@@ -111,6 +121,7 @@ impl Node {
             validator_keypair,
             validator_endpoints,
             issuer_keypair,
+            faucet_keypair,
         })
     }
 
@@ -165,6 +176,7 @@ impl Node {
             self.issuer_keypair.clone(),
             Some(self.config.data_dir.join("state.bin")),
             self.validator_endpoints.clone(),
+            self.faucet_keypair.clone(),
         );
 
         let rpc_router = rpc_server.router();
@@ -210,6 +222,11 @@ impl Node {
             None
         };
 
+        // Ensure faucet is registered (if configured)
+        if let Err(e) = self.ensure_faucet_registered().await {
+            error!("Faucet setup failed: {}", e);
+        }
+
         // Run RPC server (this will block)
         info!("RPC server listening on {}", rpc_addr);
         let listener = tokio::net::TcpListener::bind(rpc_addr).await?;
@@ -223,6 +240,70 @@ impl Node {
             handle.await?;
         }
 
+        Ok(())
+    }
+
+    async fn ensure_faucet_registered(&self) -> Result<()> {
+        let faucet_keypair = match &self.faucet_keypair {
+            Some(kp) => kp.lock().await.clone(),
+            None => return Ok(()),
+        };
+
+        let issuer_keypair = match &self.issuer_keypair {
+            Some(kp) => kp.lock().await.clone(),
+            None => {
+                error!("Faucet secret configured but issuer_key is missing");
+                return Ok(());
+            }
+        };
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let already_registered = {
+            let state = self.state.read().await;
+            state.get_agent(&faucet_keypair.public).is_some()
+        };
+
+        if already_registered {
+            return Ok(());
+        }
+
+        let issuer_id = seloria_core::hash_blake3(issuer_keypair.public.as_bytes());
+        let cert = AgentCertificate::new(
+            issuer_id,
+            faucet_keypair.public,
+            current_time,
+            current_time + 365 * 24 * 60 * 60,
+            vec![
+                seloria_core::Capability::TxSubmit,
+                seloria_core::Capability::Claim,
+                seloria_core::Capability::Attest,
+                seloria_core::Capability::KvWrite,
+            ],
+            Hash::ZERO,
+        );
+        let signed_cert = SignedAgentCertificate::new(cert, &issuer_keypair.secret)?;
+
+        let nonce = {
+            let state = self.state.read().await;
+            state
+                .get_account(&faucet_keypair.public)
+                .map(|a| a.nonce + 1)
+                .unwrap_or(1)
+        };
+
+        let mut tx = Transaction::new(
+            faucet_keypair.public,
+            nonce,
+            0,
+            vec![Op::AgentCertRegister { cert: signed_cert }],
+        );
+        tx.sign(&faucet_keypair.secret)?;
+
+        let _ = self.mempool.add(tx).await;
         Ok(())
     }
 }

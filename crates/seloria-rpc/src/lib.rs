@@ -57,6 +57,7 @@ impl<S: Storage + Send + Sync + Clone + 'static> RpcServer<S> {
         issuer_keypair: Option<Arc<tokio::sync::Mutex<seloria_core::KeyPair>>>,
         snapshot_path: Option<std::path::PathBuf>,
         validator_endpoints: Vec<seloria_consensus::ValidatorEndpoint>,
+        faucet_keypair: Option<Arc<tokio::sync::Mutex<seloria_core::KeyPair>>>,
     ) -> Self {
         let app_state = Arc::new(AppState {
             chain_state,
@@ -66,6 +67,8 @@ impl<S: Storage + Send + Sync + Clone + 'static> RpcServer<S> {
             issuer_keypair,
             snapshot_path,
             validator_endpoints,
+            faucet_keypair,
+            faucet_lock: Arc::new(tokio::sync::Mutex::new(())),
         });
 
         RpcServer { config, app_state }
@@ -121,6 +124,7 @@ mod tests {
             None,
             None,
             Vec::new(),
+            None,
         );
     }
 }

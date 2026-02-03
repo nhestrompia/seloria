@@ -15,6 +15,7 @@
   },
   "validator_key": null,
   "issuer_key": null,
+  "faucet_secret": null,
   "validator_endpoints": [
     { "pubkey": "V1_PUBKEY_HEX", "address": "http://LOCAL_IP:8080" },
     { "pubkey": "V2_PUBKEY_HEX", "address": "http://EC2_PUBLIC_IP:8080" }

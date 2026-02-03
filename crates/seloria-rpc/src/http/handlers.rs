@@ -34,6 +34,8 @@ pub struct AppState<S: Storage> {
     pub issuer_keypair: Option<Arc<tokio::sync::Mutex<KeyPair>>>,
     pub snapshot_path: Option<PathBuf>,
     pub validator_endpoints: Vec<ValidatorEndpoint>,
+    pub faucet_keypair: Option<Arc<tokio::sync::Mutex<KeyPair>>>,
+    pub faucet_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 // Response types
@@ -118,6 +120,20 @@ pub struct SnapshotPublishResponse {
 #[derive(Debug, Deserialize)]
 pub struct TxSubmitRequest {
     pub transaction: Transaction,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FaucetRequest {
+    pub to_pubkey: String,
+    pub amount: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FaucetResponse {
+    pub to_pubkey: String,
+    pub amount: u64,
+    pub tx_hash: String,
+    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -335,6 +351,99 @@ pub async fn submit_tx<S: Storage + Send + Sync>(
 
     Ok(Json(TxSubmitResponse {
         hash: hash_hex,
+        status: "pending".to_string(),
+    }))
+}
+
+/// POST /faucet - Mint testnet funds via a faucet transfer tx
+pub async fn faucet<S: Storage + Send + Sync>(
+    State(state): State<Arc<AppState<S>>>,
+    headers: HeaderMap,
+    Json(request): Json<FaucetRequest>,
+) -> Result<Json<FaucetResponse>, RpcError> {
+    let faucet_key = std::env::var("FAUCET_KEY").ok();
+    if let Some(expected) = faucet_key {
+        let provided = headers
+            .get("x-faucet-key")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if provided != expected {
+            return Err(RpcError::BadRequest("Invalid faucet key".to_string()));
+        }
+    }
+
+    let max_amount: u64 = std::env::var("FAUCET_MAX")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1_000_000);
+
+    if request.amount == 0 || request.amount > max_amount {
+        return Err(RpcError::BadRequest(format!(
+            "Invalid amount (max {})",
+            max_amount
+        )));
+    }
+
+    let faucet_keypair = state
+        .faucet_keypair
+        .as_ref()
+        .ok_or_else(|| RpcError::BadRequest("Faucet not configured".to_string()))?
+        .lock()
+        .await
+        .clone();
+
+    let _guard = state.faucet_lock.lock().await;
+
+    let to_pubkey = PublicKey::from_hex(&request.to_pubkey)
+        .map_err(|_| RpcError::BadRequest("Invalid recipient pubkey".to_string()))?;
+
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let nonce = {
+        let chain_state = state.chain_state.read().await;
+        if !chain_state.is_certified_agent(&faucet_keypair.public, current_time) {
+            return Err(RpcError::BadRequest(
+                "Faucet is not registered as a certified agent".to_string(),
+            ));
+        }
+        chain_state
+            .get_account(&faucet_keypair.public)
+            .map(|a| a.nonce + 1)
+            .unwrap_or(1)
+    };
+
+    let mut tx = Transaction::new(
+        faucet_keypair.public,
+        nonce,
+        0,
+        vec![seloria_core::Op::Transfer {
+            to: to_pubkey,
+            amount: request.amount,
+        }],
+    );
+    tx.sign(&faucet_keypair.secret)?;
+
+    let chain_state = state.chain_state.read().await;
+    let validation = validate_transaction(&tx, &chain_state, current_time);
+    if !validation.is_valid {
+        let msg = validation
+            .error
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "Invalid faucet transaction".to_string());
+        return Err(RpcError::BadRequest(msg));
+    }
+    drop(chain_state);
+
+    let hash = tx.hash()?;
+    state.mempool.add(tx).await?;
+
+    Ok(Json(FaucetResponse {
+        to_pubkey: request.to_pubkey,
+        amount: request.amount,
+        tx_hash: hash.to_hex(),
         status: "pending".to_string(),
     }))
 }

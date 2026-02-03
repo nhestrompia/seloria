@@ -41,6 +41,9 @@ pub struct NodeConfig {
     /// Issuer private key (hex) - enables /cert/issue endpoint
     pub issuer_key: Option<String>,
 
+    /// Faucet private key (hex) - enables /faucet endpoint
+    pub faucet_secret: Option<String>,
+
     /// Optional validator endpoints for committee mode
     pub validator_endpoints: Vec<ValidatorEndpointConfig>,
 }
@@ -80,6 +83,7 @@ impl Default for NodeConfig {
             genesis: GenesisConfigFile::default(),
             validator_key: None,
             issuer_key: None,
+            faucet_secret: None,
             validator_endpoints: Vec::new(),
         }
     }
@@ -178,6 +182,7 @@ pub fn generate_sample_config() -> NodeConfig {
         },
         validator_key: Some(validator.secret.to_hex()),
         issuer_key: Some(issuer.secret.to_hex()),
+        faucet_secret: None,
         validator_endpoints: Vec::new(),
     }
 }

@@ -27,13 +27,16 @@ if (!OPENROUTER_API_KEY) {
   console.error("OPENROUTER_API_KEY is required.");
   process.exit(1);
 }
-
 const config = JSON.parse(await readFile(configPath, "utf-8"));
-const rpcUrl =
-  config.rpcUrl ?? process.env.SELORIA_RPC_URL ?? "http://127.0.0.1:8080";
-const model = config.model ?? process.env.OPENROUTER_MODEL ?? "openrouter/auto";
+const rpcUrl = "http://127.0.0.1:8080";
+const model =
+  config.model ?? process.env.OPENROUTER_MODEL ?? "z-ai/glm-4.5-air:free";
 const issuerSecret = config.issuerSecret ?? process.env.ISSUER_SECRET;
 const seloriaBin = process.env.SELORIA_BIN;
+const faucetUrl = config.faucetUrl ?? `${rpcUrl.replace(/\/$/, "")}/faucet`;
+const faucetKey = config.faucetKey ?? process.env.FAUCET_KEY;
+const faucetAmount = Number(config.faucetAmount ?? 100000);
+const minBalance = Number(config.minBalance ?? 5000);
 
 if (!Array.isArray(config.agents) || config.agents.length === 0) {
   console.error("Config must include agents with pubkey + secret.");
@@ -112,6 +115,45 @@ async function issueCertIfNeeded(agent) {
   ]);
 
   await runSeloria(["tx", "--endpoint", rpcUrl, "--file", outFile]);
+}
+
+async function ensureFunding(agent) {
+  const account = await fetchJson(`/account/${agent.pubkey}`);
+  if (account.balance >= minBalance) {
+    return account;
+  }
+
+  if (!faucetUrl) {
+    return account;
+  }
+
+  const res = await fetch(faucetUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(faucetKey ? { "X-Faucet-Key": faucetKey } : {}),
+    },
+    body: JSON.stringify({
+      to_pubkey: agent.pubkey,
+      amount: faucetAmount,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.warn(`Faucet request failed: ${text}`);
+    return account;
+  }
+
+  for (let i = 0; i < 10; i += 1) {
+    const updated = await fetchJson(`/account/${agent.pubkey}`);
+    if (updated.balance >= minBalance) {
+      return updated;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  return fetchJson(`/account/${agent.pubkey}`);
 }
 
 async function getNextAction(agent, account, otherAgents) {
@@ -299,8 +341,7 @@ for (let i = 0; i < steps; i += 1) {
   const otherAgents = config.agents.filter((a) => a.pubkey !== agent.pubkey);
 
   await issueCertIfNeeded(agent);
-
-  const account = await fetchJson(`/account/${agent.pubkey}`);
+  const account = await ensureFunding(agent);
   const llmAction = await getNextAction(agent, account, otherAgents);
   const action = normalizeAction(llmAction, agent, otherAgents);
 
