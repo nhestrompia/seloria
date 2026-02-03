@@ -1,0 +1,22 @@
+{
+  "chain_id": 1,
+  "data_dir": "./seloria-data",
+  "rpc_addr": "0.0.0.0:8080",
+  "enable_ws": true,
+  "round_time_ms": 2000,
+  "max_block_txs": 1000,
+  "mempool_max_size": 10000,
+  "mempool_max_per_sender": 100,
+  "genesis": {
+    "timestamp": 1710000000,
+    "initial_balances": [],
+    "trusted_issuers": ["ISSUER_PUBKEY_HEX"],
+    "validators": ["V1_PUBKEY_HEX", "V2_PUBKEY_HEX"]
+  },
+  "validator_key": null,
+  "issuer_key": null,
+  "validator_endpoints": [
+    { "pubkey": "V1_PUBKEY_HEX", "address": "http://LOCAL_IP:8080" },
+    { "pubkey": "V2_PUBKEY_HEX", "address": "http://EC2_PUBLIC_IP:8080" }
+  ]
+}

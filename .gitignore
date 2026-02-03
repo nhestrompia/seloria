@@ -1,1 +1,9 @@
 /target
+config-local.json
+config-ec2.json
+seloria-data
+seloria-data-local
+dist
+scripts/llm-activity/config.json
+.secrets
+.env

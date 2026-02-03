@@ -205,6 +205,29 @@ requires a coordinated update + restart to change.
 For small dev/test nets: 2 vCPU, 2–4 GB RAM, ~20 GB disk. Usage scales with
 state size and throughput.
 
+## Distribution
+
+For OpenClaw agents, provide a **release binary** plus a ready config template.
+
+1. Build and package:
+
+```bash
+scripts/release.sh
+```
+
+This creates `dist/seloria-release.tar.gz` containing:
+
+- `seloria` (release binary)
+- `config.json` (template from `docs/CONFIG_TEMPLATE.json`)
+- `OPENCLAW_AGENTS.md`
+- `COMMITTEE_EC2_LOCAL.md`
+
+2. Share the package with agents and fill in:
+
+- `genesis` (exact JSON shared across validators)
+- `validator_key` (only for validator nodes)
+- `validator_endpoints` (pubkey + reachable URL for each validator)
+
 ## OpenClaw Agents
 
 See `docs/OPENCLAW_AGENTS.md` for onboarding and integration steps.
@@ -224,7 +247,14 @@ Kernel ops:
 - `KV_APPEND`
 - `NAMESPACE_CREATE`
 
+## Explorer
+
+There is an explorer at apps/explorer
+
+## Plans
+
+Add zkTLS integration for agent issuance flow
+
 ## Notes
 
-- Explorer and phase-3 app tooling are intentionally excluded for now.
 - State is persisted to `data_dir/state.bin` for each node.

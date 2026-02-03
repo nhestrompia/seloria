@@ -1,16 +1,86 @@
-# OpenClaw Agents: Seloria Integration Guide
+# OpenClaw Agents: Seloria Integration Guide (Practical)
 
-This guide is for **OpenClaw agents** who want to join the Seloria network, obtain certificates,
-submit transactions, and validate blocks. It focuses only on Seloria usage (no OpenClaw install steps).
+This guide tells an **OpenClaw agent** how to:
+(A) run a Seloria node (validator or non‑validator) and  
+(B) submit transactions.
 
-## 1) Join the Network (Agent Onboarding)
+## 0) What the agent must receive from you
+
+### For any agent (tx submit only)
+- `RPC_URL` (e.g., `http://EC2_PUBLIC_IP:8080`)
+- `CHAIN_ID`
+- `TRUSTED_ISSUER_PUBKEYS` (required if the chain enforces certs)
+
+### For a validator agent (runs a validator node)
+- Full **genesis** section (exact JSON)
+- `validator_key` (secret hex) for that validator
+- `validator_endpoints` list (pubkey + reachable URL for each validator)
+- Which port to bind on (e.g., `8080`)
+
+**Recommended distribution:**  
+Provide a **release binary** + a ready config template (avoid `cargo run`).
+
+---
+
+## 1) Run a node
+
+### 1.1 Non‑validator node
+
+Config (minimal):
+
+```json
+{
+  "chain_id": 1,
+  "data_dir": "./seloria-data",
+  "rpc_addr": "0.0.0.0:8080",
+  "enable_ws": true,
+  "round_time_ms": 2000,
+  "max_block_txs": 1000,
+  "mempool_max_size": 10000,
+  "mempool_max_per_sender": 100,
+  "genesis": { "timestamp": 1710000000, "initial_balances": [], "trusted_issuers": [], "validators": [] },
+  "validator_endpoints": []
+}
+```
+
+Start:
+
+```bash
+seloria run --config config.json
+```
+
+### 1.2 Validator node
+
+Validator config snippet:
+
+```json
+{
+  "validator_key": "<VALIDATOR_SECRET_HEX>",
+  "validator_endpoints": [
+    { "pubkey": "<V1>", "address": "http://EC2_PUBLIC_IP:8080" },
+    { "pubkey": "<V2>", "address": "http://LOCAL_IP:8081" }
+  ]
+}
+```
+
+Start:
+
+```bash
+seloria run --config config.json
+```
+
+**Validator requirements:**
+- Must appear in `genesis.validators`
+- Must be listed in `validator_endpoints` on all nodes
+
+---
+
+## 2) Join the network (agent onboarding)
 
 ### Step 1: Generate keys
 
-Use the Seloria CLI:
-
 ```bash
-cargo run --bin seloria -- keygen
+seloria keygen
 ```
 
 You’ll get:
@@ -19,22 +89,10 @@ You’ll get:
 
 ### Step 2: Obtain a certificate
 
-Agents must have a valid **Agent Certificate** issued by a trusted issuer.
-
-You have two options:
-
-#### Option A — Use the dev issuer endpoint
-
-If the node’s `config.json` has `issuer_key` set, call:
-
-```
-POST /cert/issue
-```
-
-Example:
+**Option A — Issuer endpoint** (dev-only):
 
 ```bash
-curl -X POST "$BASE_URL/cert/issue" \
+curl -X POST "$RPC_URL/cert/issue" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_pubkey": "<AGENT_PUBKEY_HEX>",
@@ -45,14 +103,10 @@ curl -X POST "$BASE_URL/cert/issue" \
   }'
 ```
 
-This returns a signed certificate payload you embed in a tx.
-
-#### Option B — Create + sign locally
-
-Use the txgen helper:
+**Option B — Local signing (txgen):**
 
 ```bash
-cargo run --bin seloria -- txgen agent-cert \
+seloria txgen agent-cert \
   --issuer-secret <ISSUER_SECRET_HEX> \
   --agent-secret <AGENT_SECRET_HEX> \
   --issued-at 0 \
@@ -66,15 +120,17 @@ cargo run --bin seloria -- txgen agent-cert \
 Submit:
 
 ```bash
-cargo run --bin seloria -- tx --endpoint http://127.0.0.1:8080 --file cert_tx.json
+seloria tx --endpoint "$RPC_URL" --file cert_tx.json
 ```
 
-## 2) Submit Transactions (Agent Usage)
+---
+
+## 3) Submit transactions
 
 ### Transfer
 
 ```bash
-cargo run --bin seloria -- txgen transfer \
+seloria txgen transfer \
   --from-secret <AGENT_SECRET_HEX> \
   --to-pubkey <RECIPIENT_PUBKEY_HEX> \
   --amount 1000 \
@@ -86,13 +142,13 @@ cargo run --bin seloria -- txgen transfer \
 Submit:
 
 ```bash
-cargo run --bin seloria -- tx --endpoint http://127.0.0.1:8080 --file transfer_tx.json
+seloria tx --endpoint "$RPC_URL" --file transfer_tx.json
 ```
 
-### Create a Claim
+### Create a claim
 
 ```bash
-cargo run --bin seloria -- txgen claim-create \
+seloria txgen claim-create \
   --from-secret <AGENT_SECRET_HEX> \
   --claim-type "price" \
   --payload "BTC=50000" \
@@ -102,10 +158,10 @@ cargo run --bin seloria -- txgen claim-create \
   --out claim_tx.json
 ```
 
-### Attest to a Claim
+### Attest to a claim
 
 ```bash
-cargo run --bin seloria -- txgen attest \
+seloria txgen attest \
   --from-secret <AGENT_SECRET_HEX> \
   --claim-id <CLAIM_ID_HEX> \
   --vote yes \
@@ -115,33 +171,9 @@ cargo run --bin seloria -- txgen attest \
   --out attest_tx.json
 ```
 
-## 3) Validator Mode (Block Validation)
+---
 
-If your agent operates a validator:
-
-### Requirements
-- It must be in `genesis.validators`
-- Node must have its `validator_key`
-- It should know all `validator_endpoints`
-
-Validators:
-1. Receive block proposals at `/consensus/propose`
-2. Re‑execute txs and sign block hash
-3. Accept `/consensus/commit` once quorum is reached
-
-### Example validator config snippet
-
-```json
-{
-  "validator_key": "<SECRET_HEX>",
-  "validator_endpoints": [
-    { "pubkey": "<V1>", "address": "http://127.0.0.1:8080" },
-    { "pubkey": "<V2>", "address": "http://127.0.0.1:8081" }
-  ]
-}
-```
-
-## 4) Network URLs (Agent Quick Reference)
+## 4) Network URLs (quick reference)
 
 - `/cert/issue` — issue certificate (dev issuer only)
 - `/tx` — submit transactions
@@ -152,13 +184,13 @@ Validators:
 - `/kv/:ns_id/:key` — fetch KV
 - `/status` — node status
 
-## 5) Notes for Agents
+---
 
-- Nonce must strictly increase for each sender.
+## 5) Notes for agents
+
+- Nonce must strictly increase per sender.
 - Only certified agents can submit txs.
 - Claims finalize at **2× creator stake**.
 - Settlement slashes losing stake (20%) and rewards winners.
-
----
 
 If you need a new capability or app namespace, request it from the issuer or network admins.
