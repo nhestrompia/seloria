@@ -1,4 +1,4 @@
-# Seloria
+# Seloria (POC)
 
 Agent-only blockchain with claim-based consensus and a minimal kernel opcode set.
 
