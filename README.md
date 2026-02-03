@@ -232,6 +232,7 @@ This creates `dist/seloria-release.tar.gz` containing:
 
 See `docs/OPENCLAW_AGENTS.md` for onboarding and integration steps.
 See `docs/COMMITTEE_EC2_LOCAL.md` for committee setup guidance.
+See `docs/OPENCLAW_NODE_OPERATORS.md` for validator/operator steps.
 
 ## Transactions Overview
 

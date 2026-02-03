@@ -7,3 +7,5 @@ dist
 scripts/llm-activity/config.json
 .secrets
 .env
+
+scripts/llm-activity/out

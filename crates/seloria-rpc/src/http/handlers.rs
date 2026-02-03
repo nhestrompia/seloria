@@ -9,7 +9,7 @@ use axum::Json;
 use async_compression::tokio::bufread::GzipEncoder;
 use seloria_consensus::{
     verify_qc, BlockBuilder, BlockBuilderConfig, CommitRequest, CommitResponse, ProposeRequest,
-    ProposeResponse, Validator,
+    ProposeResponse, Validator, ValidatorEndpoint,
 };
 use seloria_core::{Account, Block, Claim, Hash, KeyPair, KvValue, PublicKey, Transaction};
 use seloria_mempool::Mempool;
@@ -31,6 +31,7 @@ pub struct AppState<S: Storage> {
     pub validator_keypair: Option<Arc<tokio::sync::Mutex<KeyPair>>>,
     pub issuer_keypair: Option<Arc<tokio::sync::Mutex<KeyPair>>>,
     pub snapshot_path: Option<PathBuf>,
+    pub validator_endpoints: Vec<ValidatorEndpoint>,
 }
 
 // Response types
@@ -267,6 +268,7 @@ pub async fn publish_snapshot<S: Storage + Send + Sync>(
 /// POST /tx - Submit a transaction
 pub async fn submit_tx<S: Storage + Send + Sync>(
     State(state): State<Arc<AppState<S>>>,
+    headers: HeaderMap,
     Json(request): Json<TxSubmitRequest>,
 ) -> Result<Json<TxSubmitResponse>, RpcError> {
     let tx = request.transaction;
@@ -277,10 +279,41 @@ pub async fn submit_tx<S: Storage + Send + Sync>(
     let hash = tx.hash()?;
     let hash_hex = hash.to_hex();
 
-    // Add to mempool
-    state.mempool.add(tx).await?;
+    let is_gossip = headers
+        .get("x-gossip")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    // Add to mempool (ignore duplicate gossip)
+    match state.mempool.add(tx.clone()).await {
+        Ok(_) => {}
+        Err(seloria_mempool::MempoolError::AlreadyExists) => {
+            if !is_gossip {
+                return Err(RpcError::Mempool(seloria_mempool::MempoolError::AlreadyExists));
+            }
+        }
+        Err(e) => return Err(RpcError::Mempool(e)),
+    }
 
     info!("Transaction {} submitted to mempool", hash_hex);
+
+    if !is_gossip && !state.validator_endpoints.is_empty() {
+        let endpoints = state.validator_endpoints.clone();
+        let tx_clone = tx.clone();
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            for endpoint in endpoints {
+                let url = format!("{}/tx", endpoint.address.trim_end_matches('/'));
+                let _ = client
+                    .post(url)
+                    .header("x-gossip", "1")
+                    .json(&serde_json::json!({ "transaction": tx_clone }))
+                    .send()
+                    .await;
+            }
+        });
+    }
 
     Ok(Json(TxSubmitResponse {
         hash: hash_hex,

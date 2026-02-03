@@ -164,6 +164,7 @@ impl Node {
             self.validator_keypair.clone(),
             self.issuer_keypair.clone(),
             Some(self.config.data_dir.join("state.bin")),
+            self.validator_endpoints.clone(),
         );
 
         let rpc_router = rpc_server.router();
