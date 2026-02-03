@@ -1,0 +1,12 @@
+[package]
+name = "seloria-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+seloria-core = { workspace = true }
+seloria-state = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

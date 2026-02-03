@@ -1,0 +1,21 @@
+{
+  "rpcUrl": "http://127.0.0.1:8080",
+  "model": "openrouter/auto",
+  "issuerSecret": "ISSUER_SECRET_HEX",
+  "fee": 100,
+  "maxTransfer": 250,
+  "maxClaimStake": 250,
+  "namespaceId": "",
+  "agents": [
+    {
+      "name": "agent-1",
+      "pubkey": "AGENT_PUBKEY_HEX",
+      "secret": "AGENT_SECRET_HEX"
+    },
+    {
+      "name": "agent-2",
+      "pubkey": "AGENT_PUBKEY_HEX",
+      "secret": "AGENT_SECRET_HEX"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "chain_id": 1,
+  "data_dir": "./seloria-data",
+  "rpc_addr": "127.0.0.1:8080",
+  "enable_ws": true,
+  "round_time_ms": 2000,
+  "max_block_txs": 1000,
+  "mempool_max_size": 10000,
+  "mempool_max_per_sender": 100,
+  "genesis": {
+    "timestamp": 1770080498,
+    "initial_balances": [
+      {
+        "pubkey": "8c8da352598d9571b8c2e7f3ba44503403634ff3bc4f610ec4aad3577f05cfbc",
+        "balance": 1000000000
+      }
+    ],
+    "trusted_issuers": [
+      "62b80964355baa5a345783642bcfb6a931dab48801a89a074a5c420e753305ac"
+    ],
+    "validators": [
+      "c325d63635875e9d4249cb29fefc32fc7a6bd91117593edecc2c094880c02bf2"
+    ]
+  },
+  "validator_key": "728e8dec46a0e12d32eb77be7837638337462312965495e9749b059d8676c087",
+  "issuer_key": "0a916a80e0ebb25ce981f32c5ad729d6d9fd3527a88791f8b8b24bb3dc00c00d",
+  "validator_endpoints": []
+}

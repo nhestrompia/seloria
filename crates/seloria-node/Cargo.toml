@@ -1,0 +1,28 @@
+[package]
+name = "seloria-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "seloria"
+path = "src/main.rs"
+
+[dependencies]
+seloria-core = { workspace = true }
+seloria-state = { workspace = true }
+seloria-vm = { workspace = true }
+seloria-consensus = { workspace = true }
+seloria-mempool = { workspace = true }
+seloria-rpc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+hex = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+axum = { workspace = true }
