@@ -14,11 +14,13 @@ use seloria_consensus::{
 use seloria_core::{Account, Block, Claim, Hash, KeyPair, KvValue, PublicKey, Transaction};
 use seloria_mempool::Mempool;
 use seloria_state::{ChainState, Storage};
+use seloria_vm::validate_transaction;
 use serde::{Deserialize, Serialize};
 use tokio::io::BufReader;
 use tokio::sync::RwLock;
 use tokio_util::io::ReaderStream;
 use tracing::info;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::RpcError;
 use crate::ws::events::EventBroadcaster;
@@ -275,6 +277,22 @@ pub async fn submit_tx<S: Storage + Send + Sync>(
 
     // Verify signature first
     tx.verify_signature()?;
+
+    // Basic validation against current state (prevents invalid mempool spam)
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let chain_state = state.chain_state.read().await;
+    let validation = validate_transaction(&tx, &chain_state, current_time);
+    if !validation.is_valid {
+        let msg = validation
+            .error
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "Invalid transaction".to_string());
+        return Err(RpcError::BadRequest(msg));
+    }
+    drop(chain_state);
 
     let hash = tx.hash()?;
     let hash_hex = hash.to_hex();
