@@ -3,9 +3,24 @@
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8080/ws";
 
 export type WsEvent =
-  | { type: "block_finalized"; data: { height: number; hash: string } }
-  | { type: "tx_executed"; data: { tx_hash: string; block_height: number } }
-  | { type: "claim_updated"; data: { claim_id: string; status: string } };
+  | {
+      type: "BlockCommitted";
+      data: { height: number; hash: string; tx_count: number; timestamp: number };
+    }
+  | { type: "TxApplied"; data: { hash: string; sender: string; success: boolean } }
+  | {
+      type: "ClaimCreated";
+      data: { id: string; claim_type: string; creator: string; stake: number };
+    }
+  | {
+      type: "AttestAdded";
+      data: { claim_id: string; attester: string; vote: string; stake: number };
+    }
+  | {
+      type: "ClaimFinalized";
+      data: { id: string; status: string; yes_stake: number; no_stake: number };
+    }
+  | { type: "KvUpdated"; data: { ns_id: string; key: string } };
 
 export class SeloriaWebSocket {
   private ws: WebSocket | null = null;

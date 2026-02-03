@@ -9,3 +9,4 @@ scripts/llm-activity/config.json
 .env
 
 scripts/llm-activity/out
+.env.local

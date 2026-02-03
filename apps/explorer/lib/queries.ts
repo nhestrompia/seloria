@@ -32,8 +32,8 @@ export function useStatus() {
       queryClient.invalidateQueries({ queryKey: queryKeys.status });
     };
 
-    ws.on("block_finalized", handleBlockFinalized);
-    return () => ws.off("block_finalized", handleBlockFinalized);
+    ws.on("BlockCommitted", handleBlockFinalized);
+    return () => ws.off("BlockCommitted", handleBlockFinalized);
   }, [queryClient]);
 
   return query;
@@ -57,8 +57,8 @@ export function useRecentBlocks(limit: number = 5) {
       });
     };
 
-    ws.on("block_finalized", handleBlockFinalized);
-    return () => ws.off("block_finalized", handleBlockFinalized);
+    ws.on("BlockCommitted", handleBlockFinalized);
+    return () => ws.off("BlockCommitted", handleBlockFinalized);
   }, [queryClient]);
 
   return query;
@@ -111,8 +111,8 @@ export function useAccount(pubkey: string) {
       });
     };
 
-    ws.on("tx_executed", handleTxExecuted);
-    return () => ws.off("tx_executed", handleTxExecuted);
+    ws.on("TxApplied", handleTxExecuted);
+    return () => ws.off("TxApplied", handleTxExecuted);
   }, [queryClient, pubkey]);
 
   return query;
@@ -132,15 +132,19 @@ export function useClaim(id: string) {
   // WebSocket updates
   useEffect(() => {
     const handleClaimUpdated = (event: any) => {
-      if (event.data.claim_id === id) {
+      if (event.data.id === id || event.data.claim_id === id) {
         queryClient.invalidateQueries({
           queryKey: queryKeys.claim(id),
         });
       }
     };
 
-    ws.on("claim_updated", handleClaimUpdated);
-    return () => ws.off("claim_updated", handleClaimUpdated);
+    ws.on("ClaimFinalized", handleClaimUpdated);
+    ws.on("AttestAdded", handleClaimUpdated);
+    return () => {
+      ws.off("ClaimFinalized", handleClaimUpdated);
+      ws.off("AttestAdded", handleClaimUpdated);
+    };
   }, [queryClient, id]);
 
   return query;
