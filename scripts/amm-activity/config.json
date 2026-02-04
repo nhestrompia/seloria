@@ -1,0 +1,40 @@
+{
+  "rpcUrl": "http://127.0.0.1:8080",
+  "fee": 100,
+  "faucetAmount": 100000,
+  "minBalance": 5000,
+  "token": {
+    "name": "Amm Token",
+    "symbol": "AMM",
+    "decimals": 6,
+    "supply": 1000000
+  },
+  "pool": {
+    "amountNative": 100000,
+    "amountToken": 500000
+  },
+  "transfer": {
+    "amount": 100000
+  },
+  "swap": {
+    "amountIn": 1000,
+    "minOut": 1
+  },
+  "remove": {
+    "lpAmount": 0,
+    "minA": 1,
+    "minB": 1
+  },
+  "agents": [
+    {
+      "name": "creator",
+      "pubkey": "7aa45966bd465b39be31303eda13ae4e4cbee90306798b67ef5863014e2444f8",
+      "secret": "29ac4b6631f58a2e56535d3a246652972b43a8732eff7afdaa36c55db10f3029"
+    },
+    {
+      "name": "trader",
+      "pubkey": "641b0222503760c2778a53870daa7343ee97e2050264a4bcc99c9ce11c8399c4",
+      "secret": "b3dc3ee294267daf80a82086ca98a0d919ed5099d7112a2d2bb494e5bd1b173a"
+    }
+  ]
+}

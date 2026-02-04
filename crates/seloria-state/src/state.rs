@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use seloria_core::{
-    serialize, Account, AppMeta, Block, Claim, GenesisConfig, Hash, KvValue, LockId, NamespaceMeta,
-    PublicKey, SignedAgentCertificate,
+    serialize, Account, AmmPool, AppMeta, Block, Claim, GenesisConfig, Hash, KvValue, LockId,
+    NamespaceMeta, PublicKey, SignedAgentCertificate, TokenMeta, NATIVE_TOKEN_ID,
 };
 use tracing::{debug, info};
 
@@ -19,6 +19,9 @@ mod keys {
     pub const NAMESPACE: &[u8] = b"ns:";
     pub const KV: &[u8] = b"kv:";
     pub const APP: &[u8] = b"app:";
+    pub const TOKEN: &[u8] = b"tok:";
+    pub const POOL: &[u8] = b"pool:";
+    pub const LP: &[u8] = b"lp:";
     pub const BLOCK: &[u8] = b"blk:";
     pub const TX: &[u8] = b"tx:";
     pub const CHAIN_ID: &[u8] = b"chain:id";
@@ -43,6 +46,12 @@ pub struct ChainState<S: Storage> {
     pub kv_store: BTreeMap<(Hash, String), KvValue>,
     /// Registered applications
     pub apps: BTreeMap<Hash, AppMeta>,
+    /// Token registry
+    pub tokens: BTreeMap<Hash, TokenMeta>,
+    /// AMM pools
+    pub pools: BTreeMap<Hash, AmmPool>,
+    /// LP balances (pool_id, owner) -> amount
+    pub lp_balances: BTreeMap<(Hash, PublicKey), u64>,
     /// Block storage by height
     pub blocks: BTreeMap<u64, Block>,
     /// Transaction index by hash
@@ -68,6 +77,9 @@ impl<S: Storage + Clone> Clone for ChainState<S> {
             namespaces: self.namespaces.clone(),
             kv_store: self.kv_store.clone(),
             apps: self.apps.clone(),
+            tokens: self.tokens.clone(),
+            pools: self.pools.clone(),
+            lp_balances: self.lp_balances.clone(),
             blocks: self.blocks.clone(),
             tx_index: self.tx_index.clone(),
             head_block: self.head_block.clone(),
@@ -90,6 +102,9 @@ impl<S: Storage> ChainState<S> {
             namespaces: BTreeMap::new(),
             kv_store: BTreeMap::new(),
             apps: BTreeMap::new(),
+            tokens: BTreeMap::new(),
+            pools: BTreeMap::new(),
+            lp_balances: BTreeMap::new(),
             blocks: BTreeMap::new(),
             tx_index: BTreeMap::new(),
             head_block: None,
@@ -106,12 +121,18 @@ impl<S: Storage> ChainState<S> {
         self.chain_id = config.chain_id;
         self.validators = config.validators.clone();
 
-        // Set initial balances
+        // Set initial balances (native token)
+        let mut native_supply: u64 = 0;
         for (pubkey, balance) in &config.initial_balances {
-            let account = Account::new(*balance);
+            let account = Account::new_native(*balance);
             self.accounts.insert(*pubkey, account);
+            native_supply = native_supply.saturating_add(*balance);
             debug!("Set initial balance for {}: {}", pubkey, balance);
         }
+
+        // Register native token
+        let native = TokenMeta::native("Seloria", "SEL", 6, native_supply);
+        self.tokens.insert(NATIVE_TOKEN_ID, native);
 
         // Set trusted issuers
         for issuer in &config.trusted_issuers {
@@ -188,6 +209,30 @@ impl<S: Storage> ChainState<S> {
             self.storage.put(&key, &value);
         }
 
+        // Persist tokens
+        for (token_id, token) in &self.tokens {
+            let key = [keys::TOKEN, token_id.as_bytes()].concat();
+            let value =
+                serialize::to_bytes(token).map_err(|e| StateError::Serialization(e.to_string()))?;
+            self.storage.put(&key, &value);
+        }
+
+        // Persist pools
+        for (pool_id, pool) in &self.pools {
+            let key = [keys::POOL, pool_id.as_bytes()].concat();
+            let value =
+                serialize::to_bytes(pool).map_err(|e| StateError::Serialization(e.to_string()))?;
+            self.storage.put(&key, &value);
+        }
+
+        // Persist LP balances
+        for ((pool_id, owner), amount) in &self.lp_balances {
+            let key = format_lp_key(pool_id, owner);
+            let value =
+                serialize::to_bytes(amount).map_err(|e| StateError::Serialization(e.to_string()))?;
+            self.storage.put(&key, &value);
+        }
+
         // Persist blocks
         for (height, block) in &self.blocks {
             let key = format_block_key(*height);
@@ -232,6 +277,9 @@ impl<S: Storage> ChainState<S> {
         self.namespaces.clear();
         self.kv_store.clear();
         self.apps.clear();
+        self.tokens.clear();
+        self.pools.clear();
+        self.lp_balances.clear();
         self.blocks.clear();
         self.tx_index.clear();
         self.head_block = None;
@@ -313,6 +361,46 @@ impl<S: Storage> ChainState<S> {
                     let app = serialize::from_bytes(&value)
                         .map_err(|e| StateError::Serialization(e.to_string()))?;
                     self.apps.insert(app_id, app);
+                }
+            }
+        }
+
+        for key in self.storage.keys_with_prefix(keys::TOKEN) {
+            if let Some(value) = self.storage.get(&key) {
+                let token_bytes = &key[keys::TOKEN.len()..];
+                if let Some(token_id) = Hash::from_slice(token_bytes) {
+                    let token = serialize::from_bytes(&value)
+                        .map_err(|e| StateError::Serialization(e.to_string()))?;
+                    self.tokens.insert(token_id, token);
+                }
+            }
+        }
+
+        for key in self.storage.keys_with_prefix(keys::POOL) {
+            if let Some(value) = self.storage.get(&key) {
+                let pool_bytes = &key[keys::POOL.len()..];
+                if let Some(pool_id) = Hash::from_slice(pool_bytes) {
+                    let pool = serialize::from_bytes(&value)
+                        .map_err(|e| StateError::Serialization(e.to_string()))?;
+                    self.pools.insert(pool_id, pool);
+                }
+            }
+        }
+
+        for key in self.storage.keys_with_prefix(keys::LP) {
+            if let Some(value) = self.storage.get(&key) {
+                let rest = &key[keys::LP.len()..];
+                if rest.len() != 64 {
+                    continue;
+                }
+                let pool_bytes = &rest[..32];
+                let owner_bytes = &rest[32..];
+                if let (Some(pool_id), Some(owner)) =
+                    (Hash::from_slice(pool_bytes), PublicKey::from_slice(owner_bytes))
+                {
+                    let amount: u64 = serialize::from_bytes(&value)
+                        .map_err(|e| StateError::Serialization(e.to_string()))?;
+                    self.lp_balances.insert((pool_id, owner), amount);
                 }
             }
         }
@@ -420,6 +508,30 @@ impl<S: Storage> ChainState<S> {
             entries.push((key, value));
         }
 
+        // Add tokens
+        for (token_id, token) in &self.tokens {
+            let key = [keys::TOKEN, token_id.as_bytes()].concat();
+            let value =
+                serialize::to_bytes(token).map_err(|e| StateError::Serialization(e.to_string()))?;
+            entries.push((key, value));
+        }
+
+        // Add pools
+        for (pool_id, pool) in &self.pools {
+            let key = [keys::POOL, pool_id.as_bytes()].concat();
+            let value =
+                serialize::to_bytes(pool).map_err(|e| StateError::Serialization(e.to_string()))?;
+            entries.push((key, value));
+        }
+
+        // Add LP balances
+        for ((pool_id, owner), amount) in &self.lp_balances {
+            let key = format_lp_key(pool_id, owner);
+            let value =
+                serialize::to_bytes(amount).map_err(|e| StateError::Serialization(e.to_string()))?;
+            entries.push((key, value));
+        }
+
         let entry_refs: Vec<(&[u8], &[u8])> = entries
             .iter()
             .map(|(k, v)| (k.as_slice(), v.as_slice()))
@@ -444,18 +556,61 @@ impl<S: Storage> ChainState<S> {
 
     /// Get account balance
     pub fn get_balance(&self, pubkey: &PublicKey) -> u64 {
-        self.accounts.get(pubkey).map_or(0, |a| a.balance)
+        self.get_token_balance(pubkey, &NATIVE_TOKEN_ID)
     }
 
-    /// Transfer tokens between accounts
+    /// Get token balance
+    pub fn get_token_balance(&self, pubkey: &PublicKey, token_id: &Hash) -> u64 {
+        self.accounts
+            .get(pubkey)
+            .map_or(0, |a| a.balance(token_id))
+    }
+
+    /// Credit a token balance
+    pub fn credit_token(&mut self, pubkey: &PublicKey, token_id: &Hash, amount: u64) {
+        let account = self.get_or_create_account(pubkey);
+        account.credit(token_id, amount);
+    }
+
+    /// Debit a token balance
+    pub fn debit_token(
+        &mut self,
+        pubkey: &PublicKey,
+        token_id: &Hash,
+        amount: u64,
+    ) -> Result<(), StateError> {
+        let balance = self.get_token_balance(pubkey, token_id);
+        if balance < amount {
+            return Err(StateError::InsufficientBalance {
+                have: balance,
+                need: amount,
+            });
+        }
+        let account = self.get_or_create_account(pubkey);
+        account.debit(token_id, amount);
+        Ok(())
+    }
+
+    /// Transfer native tokens between accounts
     pub fn transfer(
         &mut self,
         from: &PublicKey,
         to: &PublicKey,
         amount: u64,
     ) -> Result<(), StateError> {
+        self.transfer_token(from, to, &NATIVE_TOKEN_ID, amount)
+    }
+
+    /// Transfer tokens between accounts
+    pub fn transfer_token(
+        &mut self,
+        from: &PublicKey,
+        to: &PublicKey,
+        token_id: &Hash,
+        amount: u64,
+    ) -> Result<(), StateError> {
         // Check balance
-        let from_balance = self.get_balance(from);
+        let from_balance = self.get_token_balance(from, token_id);
         if from_balance < amount {
             return Err(StateError::InsufficientBalance {
                 have: from_balance,
@@ -463,9 +618,8 @@ impl<S: Storage> ChainState<S> {
             });
         }
 
-        // Perform transfer
-        self.get_or_create_account(from).balance -= amount;
-        self.get_or_create_account(to).balance += amount;
+        self.get_or_create_account(from).debit(token_id, amount);
+        self.get_or_create_account(to).credit(token_id, amount);
 
         Ok(())
     }
@@ -473,13 +627,13 @@ impl<S: Storage> ChainState<S> {
     /// Deduct fee from account
     pub fn deduct_fee(&mut self, pubkey: &PublicKey, fee: u64) -> Result<(), StateError> {
         let account = self.get_or_create_account(pubkey);
-        if account.balance < fee {
+        if account.native_balance() < fee {
             return Err(StateError::InsufficientBalance {
-                have: account.balance,
+                have: account.native_balance(),
                 need: fee,
             });
         }
-        account.balance -= fee;
+        account.debit(&NATIVE_TOKEN_ID, fee);
         Ok(())
     }
 
@@ -500,7 +654,8 @@ impl<S: Storage> ChainState<S> {
                 credit += remainder;
             }
             if credit > 0 {
-                self.get_or_create_account(validator).balance += credit;
+                self.get_or_create_account(validator)
+                    .credit(&NATIVE_TOKEN_ID, credit);
             }
         }
     }
@@ -520,7 +675,7 @@ impl<S: Storage> ChainState<S> {
         let account = self.get_or_create_account(pubkey);
         if !account.lock(lock_id, amount) {
             return Err(StateError::InsufficientBalance {
-                have: account.balance,
+                have: account.native_balance(),
                 need: amount,
             });
         }
@@ -632,6 +787,77 @@ impl<S: Storage> ChainState<S> {
         self.apps.get(app_id)
     }
 
+    // Token operations
+
+    /// Register a new token
+    pub fn add_token(&mut self, token: TokenMeta) {
+        self.tokens.insert(token.token_id, token);
+    }
+
+    /// Get token metadata
+    pub fn get_token(&self, token_id: &Hash) -> Option<&TokenMeta> {
+        self.tokens.get(token_id)
+    }
+
+    // AMM pool operations
+
+    /// Add a new pool
+    pub fn add_pool(&mut self, pool: AmmPool) {
+        self.pools.insert(pool.pool_id, pool);
+    }
+
+    /// Get pool metadata
+    pub fn get_pool(&self, pool_id: &Hash) -> Option<&AmmPool> {
+        self.pools.get(pool_id)
+    }
+
+    /// Get mutable pool
+    pub fn get_pool_mut(&mut self, pool_id: &Hash) -> Option<&mut AmmPool> {
+        self.pools.get_mut(pool_id)
+    }
+
+    /// Get LP balance
+    pub fn get_lp_balance(&self, pool_id: &Hash, owner: &PublicKey) -> u64 {
+        self.lp_balances
+            .get(&(*pool_id, *owner))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Credit LP balance
+    pub fn credit_lp(&mut self, pool_id: &Hash, owner: &PublicKey, amount: u64) {
+        if amount == 0 {
+            return;
+        }
+        *self
+            .lp_balances
+            .entry((*pool_id, *owner))
+            .or_insert(0) += amount;
+    }
+
+    /// Debit LP balance
+    pub fn debit_lp(
+        &mut self,
+        pool_id: &Hash,
+        owner: &PublicKey,
+        amount: u64,
+    ) -> Result<(), StateError> {
+        let balance = self.get_lp_balance(pool_id, owner);
+        if balance < amount {
+            return Err(StateError::InsufficientBalance {
+                have: balance,
+                need: amount,
+            });
+        }
+        if let Some(balance_mut) = self.lp_balances.get_mut(&(*pool_id, *owner)) {
+            *balance_mut -= amount;
+            if *balance_mut == 0 {
+                self.lp_balances.remove(&(*pool_id, *owner));
+            }
+        }
+        Ok(())
+    }
+
     // Block and transaction index operations
 
     /// Get a block by height
@@ -686,6 +912,14 @@ fn format_kv_key(ns_id: &Hash, key: &str) -> Vec<u8> {
     storage_key
 }
 
+/// Format LP balance storage key
+fn format_lp_key(pool_id: &Hash, owner: &PublicKey) -> Vec<u8> {
+    let mut key = keys::LP.to_vec();
+    key.extend_from_slice(pool_id.as_bytes());
+    key.extend_from_slice(owner.as_bytes());
+    key
+}
+
 /// Format block storage key
 fn format_block_key(height: u64) -> Vec<u8> {
     let mut key = keys::BLOCK.to_vec();
@@ -738,7 +972,7 @@ mod tests {
         let alice = KeyPair::generate();
         let bob = KeyPair::generate();
 
-        state.get_or_create_account(&alice.public).balance = 1000;
+        state.credit_token(&alice.public, &NATIVE_TOKEN_ID, 1000);
 
         state.transfer(&alice.public, &bob.public, 300).unwrap();
 
@@ -752,7 +986,7 @@ mod tests {
         let alice = KeyPair::generate();
         let bob = KeyPair::generate();
 
-        state.get_or_create_account(&alice.public).balance = 100;
+        state.credit_token(&alice.public, &NATIVE_TOKEN_ID, 100);
 
         let result = state.transfer(&alice.public, &bob.public, 200);
         assert!(matches!(result, Err(StateError::InsufficientBalance { .. })));
@@ -777,7 +1011,7 @@ mod tests {
         let user = KeyPair::generate();
         let lock_id = LockId::new(hash_blake3(b"claim1"));
 
-        state.get_or_create_account(&user.public).balance = 1000;
+        state.credit_token(&user.public, &NATIVE_TOKEN_ID, 1000);
 
         state.lock_stake(&user.public, lock_id, 300).unwrap();
         assert_eq!(state.get_balance(&user.public), 700);
@@ -792,7 +1026,7 @@ mod tests {
         let mut state = create_test_state();
         let user = KeyPair::generate();
 
-        state.get_or_create_account(&user.public).balance = 1000;
+        state.credit_token(&user.public, &NATIVE_TOKEN_ID, 1000);
 
         let root1 = state.compute_state_root().unwrap();
         let root2 = state.compute_state_root().unwrap();
@@ -805,10 +1039,10 @@ mod tests {
         let mut state = create_test_state();
         let user = KeyPair::generate();
 
-        state.get_or_create_account(&user.public).balance = 1000;
+        state.credit_token(&user.public, &NATIVE_TOKEN_ID, 1000);
         let root1 = state.compute_state_root().unwrap();
 
-        state.get_or_create_account(&user.public).balance = 2000;
+        state.credit_token(&user.public, &NATIVE_TOKEN_ID, 1000);
         let root2 = state.compute_state_root().unwrap();
 
         assert_ne!(root1, root2);

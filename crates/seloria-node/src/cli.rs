@@ -138,6 +138,59 @@ pub enum TxGenCommands {
         out: PathBuf,
     },
 
+    /// Create a TOKEN_CREATE transaction
+    TokenCreate {
+        /// Sender secret key hex
+        #[arg(long)]
+        from_secret: String,
+        /// Token name
+        #[arg(long)]
+        name: String,
+        /// Token symbol
+        #[arg(long)]
+        symbol: String,
+        /// Token decimals
+        #[arg(long)]
+        decimals: u8,
+        /// Total supply
+        #[arg(long)]
+        total_supply: u64,
+        /// Transaction nonce
+        #[arg(long)]
+        nonce: u64,
+        /// Transaction fee
+        #[arg(long)]
+        fee: u64,
+        /// Output file (JSON)
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+
+    /// Create a TOKEN_TRANSFER transaction
+    TokenTransfer {
+        /// Sender secret key hex
+        #[arg(long)]
+        from_secret: String,
+        /// Token ID hex
+        #[arg(long)]
+        token_id: String,
+        /// Recipient public key hex
+        #[arg(long)]
+        to_pubkey: String,
+        /// Amount to send
+        #[arg(long)]
+        amount: u64,
+        /// Transaction nonce
+        #[arg(long)]
+        nonce: u64,
+        /// Transaction fee
+        #[arg(long)]
+        fee: u64,
+        /// Output file (JSON)
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+
     /// Create a CLAIM_CREATE transaction
     ClaimCreate {
         /// Sender secret key hex
@@ -292,6 +345,118 @@ pub enum TxGenCommands {
         /// Treat value as hex bytes
         #[arg(long, default_value = "false")]
         value_hex: bool,
+        /// Transaction nonce
+        #[arg(long)]
+        nonce: u64,
+        /// Transaction fee
+        #[arg(long)]
+        fee: u64,
+        /// Output file (JSON)
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+
+    /// Create a POOL_CREATE transaction
+    PoolCreate {
+        /// Sender secret key hex
+        #[arg(long)]
+        from_secret: String,
+        /// Token A ID hex
+        #[arg(long)]
+        token_a: String,
+        /// Token B ID hex
+        #[arg(long)]
+        token_b: String,
+        /// Amount of token A
+        #[arg(long)]
+        amount_a: u64,
+        /// Amount of token B
+        #[arg(long)]
+        amount_b: u64,
+        /// Transaction nonce
+        #[arg(long)]
+        nonce: u64,
+        /// Transaction fee
+        #[arg(long)]
+        fee: u64,
+        /// Output file (JSON)
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+
+    /// Create a POOL_ADD transaction
+    PoolAdd {
+        /// Sender secret key hex
+        #[arg(long)]
+        from_secret: String,
+        /// Pool ID hex
+        #[arg(long)]
+        pool_id: String,
+        /// Amount of token A
+        #[arg(long)]
+        amount_a: u64,
+        /// Amount of token B
+        #[arg(long)]
+        amount_b: u64,
+        /// Minimum LP tokens to mint
+        #[arg(long)]
+        min_lp: u64,
+        /// Transaction nonce
+        #[arg(long)]
+        nonce: u64,
+        /// Transaction fee
+        #[arg(long)]
+        fee: u64,
+        /// Output file (JSON)
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+
+    /// Create a POOL_REMOVE transaction
+    PoolRemove {
+        /// Sender secret key hex
+        #[arg(long)]
+        from_secret: String,
+        /// Pool ID hex
+        #[arg(long)]
+        pool_id: String,
+        /// LP amount to burn
+        #[arg(long)]
+        lp_amount: u64,
+        /// Minimum amount of token A
+        #[arg(long)]
+        min_a: u64,
+        /// Minimum amount of token B
+        #[arg(long)]
+        min_b: u64,
+        /// Transaction nonce
+        #[arg(long)]
+        nonce: u64,
+        /// Transaction fee
+        #[arg(long)]
+        fee: u64,
+        /// Output file (JSON)
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+
+    /// Create a SWAP transaction
+    Swap {
+        /// Sender secret key hex
+        #[arg(long)]
+        from_secret: String,
+        /// Pool ID hex
+        #[arg(long)]
+        pool_id: String,
+        /// Token input ID hex
+        #[arg(long)]
+        token_in: String,
+        /// Amount in
+        #[arg(long)]
+        amount_in: u64,
+        /// Minimum amount out
+        #[arg(long)]
+        min_out: u64,
         /// Transaction nonce
         #[arg(long)]
         nonce: u64,

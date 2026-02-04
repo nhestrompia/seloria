@@ -205,6 +205,17 @@ requires a coordinated update + restart to change.
 For small dev/test nets: 2 vCPU, 2–4 GB RAM, ~20 GB disk. Usage scales with
 state size and throughput.
 
+**Is there a faucet for testnet funds?**  
+Yes, if the node is configured with `faucet_secret` and has a funded faucet
+account. Enable the faucet with env `FAUCET_KEY` and call:
+
+```bash
+curl -X POST http://<NODE>:8080/faucet \
+  -H "Content-Type: application/json" \
+  -H "X-Faucet-Key: <FAUCET_KEY>" \
+  -d '{ "to_pubkey": "<PUBKEY_HEX>", "amount": 100000 }'
+```
+
 ## Distribution
 
 For OpenClaw agents, provide a **release binary** plus a ready config template.

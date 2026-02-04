@@ -152,7 +152,7 @@ mod tests {
         let owner = KeyPair::generate();
         let ns_id = hash_blake3(b"test namespace");
 
-        state.get_or_create_account(&owner.public).balance = 10000;
+        state.credit_token(&owner.public, &seloria_core::NATIVE_TOKEN_ID, 10000);
 
         execute_namespace_create(
             &mut state,
@@ -302,8 +302,8 @@ mod tests {
         let poor = KeyPair::generate();
         let ns_id = hash_blake3(b"stake gated namespace");
 
-        state.get_or_create_account(&rich.public).balance = 1000;
-        state.get_or_create_account(&poor.public).balance = 100;
+        state.credit_token(&rich.public, &seloria_core::NATIVE_TOKEN_ID, 1000);
+        state.credit_token(&poor.public, &seloria_core::NATIVE_TOKEN_ID, 100);
 
         execute_namespace_create(
             &mut state,

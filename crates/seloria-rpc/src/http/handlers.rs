@@ -486,9 +486,9 @@ pub async fn get_account<S: Storage + Send + Sync>(
 
     Ok(Json(AccountResponse {
         pubkey: pubkey_hex,
-        balance: account.balance,
+        balance: account.native_balance(),
         nonce: account.nonce,
-        total_balance: account.total_balance(),
+        total_balance: account.total_native_balance(),
     }))
 }
 

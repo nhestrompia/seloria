@@ -5,7 +5,8 @@ use tracing::{debug, error, info};
 use crate::error::VmError;
 use crate::opcodes::{
     execute_agent_cert_register, execute_attest, execute_claim_create, execute_kv_append,
-    execute_kv_del, execute_kv_put, execute_namespace_create, execute_transfer,
+    execute_kv_del, execute_kv_put, execute_namespace_create, execute_pool_add, execute_pool_create,
+    execute_pool_remove, execute_swap, execute_token_create, execute_token_transfer, execute_transfer,
 };
 use crate::validation::validate_transaction;
 
@@ -62,6 +63,42 @@ pub enum ExecutionEvent {
     KvDeleted {
         ns_id: Hash,
         key: String,
+    },
+    TokenCreated {
+        token_id: Hash,
+        symbol: String,
+        total_supply: u64,
+        creator: seloria_core::PublicKey,
+    },
+    TokenTransfer {
+        token_id: Hash,
+        from: seloria_core::PublicKey,
+        to: seloria_core::PublicKey,
+        amount: u64,
+    },
+    PoolCreated {
+        pool_id: Hash,
+        token_a: Hash,
+        token_b: Hash,
+    },
+    PoolLiquidityAdded {
+        pool_id: Hash,
+        provider: seloria_core::PublicKey,
+        lp_minted: u64,
+    },
+    PoolLiquidityRemoved {
+        pool_id: Hash,
+        provider: seloria_core::PublicKey,
+        amount_a: u64,
+        amount_b: u64,
+    },
+    SwapExecuted {
+        pool_id: Hash,
+        trader: seloria_core::PublicKey,
+        token_in: Hash,
+        amount_in: u64,
+        token_out: Hash,
+        amount_out: u64,
     },
     AppRegistered {
         app_id: Hash,
@@ -188,6 +225,42 @@ impl Executor {
                 });
             }
 
+            Op::TokenCreate {
+                name,
+                symbol,
+                decimals,
+                total_supply,
+            } => {
+                let meta = execute_token_create(
+                    state,
+                    sender,
+                    name,
+                    symbol,
+                    *decimals,
+                    *total_supply,
+                )?;
+                events.push(ExecutionEvent::TokenCreated {
+                    token_id: meta.token_id,
+                    symbol: meta.symbol,
+                    total_supply: meta.total_supply,
+                    creator: *sender,
+                });
+            }
+
+            Op::TokenTransfer {
+                token_id,
+                to,
+                amount,
+            } => {
+                execute_token_transfer(state, sender, token_id, to, *amount)?;
+                events.push(ExecutionEvent::TokenTransfer {
+                    token_id: *token_id,
+                    from: *sender,
+                    to: *to,
+                    amount: *amount,
+                });
+            }
+
             Op::ClaimCreate {
                 claim_type,
                 payload_hash,
@@ -307,6 +380,88 @@ impl Executor {
                     owner: *sender,
                 });
             }
+
+            Op::PoolCreate {
+                token_a,
+                token_b,
+                amount_a,
+                amount_b,
+            } => {
+                let pool_id = execute_pool_create(
+                    state,
+                    sender,
+                    token_a,
+                    token_b,
+                    *amount_a,
+                    *amount_b,
+                )?;
+                events.push(ExecutionEvent::PoolCreated {
+                    pool_id,
+                    token_a: *token_a,
+                    token_b: *token_b,
+                });
+            }
+
+            Op::PoolAdd {
+                pool_id,
+                amount_a,
+                amount_b,
+                min_lp,
+            } => {
+                let lp_minted = execute_pool_add(
+                    state,
+                    sender,
+                    pool_id,
+                    *amount_a,
+                    *amount_b,
+                    *min_lp,
+                )?;
+                events.push(ExecutionEvent::PoolLiquidityAdded {
+                    pool_id: *pool_id,
+                    provider: *sender,
+                    lp_minted,
+                });
+            }
+
+            Op::PoolRemove {
+                pool_id,
+                lp_amount,
+                min_a,
+                min_b,
+            } => {
+                let (amount_a, amount_b) =
+                    execute_pool_remove(state, sender, pool_id, *lp_amount, *min_a, *min_b)?;
+                events.push(ExecutionEvent::PoolLiquidityRemoved {
+                    pool_id: *pool_id,
+                    provider: *sender,
+                    amount_a,
+                    amount_b,
+                });
+            }
+
+            Op::Swap {
+                pool_id,
+                token_in,
+                amount_in,
+                min_out,
+            } => {
+                let amount_out =
+                    execute_swap(state, sender, pool_id, token_in, *amount_in, *min_out)?;
+                let pool = state.get_pool(pool_id).unwrap();
+                let token_out = if *token_in == pool.token_a {
+                    pool.token_b
+                } else {
+                    pool.token_a
+                };
+                events.push(ExecutionEvent::SwapExecuted {
+                    pool_id: *pool_id,
+                    trader: *sender,
+                    token_in: *token_in,
+                    amount_in: *amount_in,
+                    token_out,
+                    amount_out,
+                });
+            }
         }
 
         Ok(())
@@ -398,7 +553,7 @@ mod tests {
 
         // Register another agent for attestation
         let attester = KeyPair::generate();
-        state.get_or_create_account(&attester.public).balance = 100_000;
+        state.credit_token(&attester.public, &seloria_core::NATIVE_TOKEN_ID, 100_000);
 
         let attester_cert = AgentCertificate::new(
             hash_blake3(issuer.public.as_bytes()),

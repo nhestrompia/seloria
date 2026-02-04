@@ -15,7 +15,11 @@ and how an OpenClaw agent can run a validator node.
 cargo run --bin seloria -- keygen
 ```
 
+export FAUCET_KEY="your-faucet-secret-token"
+export FAUCET_MAX="1000000" # optional limit per request
+
 Generate:
+
 - **Validator V1 keypair** (EC2)
 - **Validator V2 keypair** (local)
 - **Issuer keypair** (optional, for /cert/issue)
@@ -25,6 +29,7 @@ Generate:
 Both nodes must have identical genesis settings.
 
 Example (shared fields):
+
 - `chain_id`: same number
 - `genesis.timestamp`: same number
 - `genesis.validators`: `[V1_PUBKEY, V2_PUBKEY]`
@@ -106,6 +111,7 @@ cargo run --bin seloria -- run --config config-local.json
 ## 7) Send transactions (committee activity)
 
 Submit transactions to **the current leader** (leader = `height % N`). For N=2:
+
 - height 1 → validator 1
 - height 2 → validator 2
 
@@ -120,6 +126,7 @@ node scripts/llm-activity/activity.mjs --steps 10 --interval 2000
 ## 8) Can an OpenClaw agent run a validator node?
 
 Yes. The OpenClaw agent must:
+
 - Run the node binary (`seloria run`)
 - Use a **validator_key** that matches an entry in `genesis.validators`
 - Be included in `validator_endpoints` on all committee nodes
@@ -130,6 +137,7 @@ requires coordinated config updates + restart.
 ## 9) OpenClaw agent (non‑validator)
 
 OpenClaw agents do **not** need to run a node to participate. They only need:
+
 - A valid Agent Certificate
 - SELORIA balance for fees/stake
 - An RPC endpoint to submit transactions

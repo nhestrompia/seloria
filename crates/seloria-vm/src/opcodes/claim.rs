@@ -1,6 +1,6 @@
 use seloria_core::{
-    calculate_settlement, Attestation, Claim, ClaimStatus, Hash, LockId, PublicKey, Vote,
-    hash_blake3,
+    calculate_settlement, hash_blake3, Attestation, Claim, ClaimStatus, Hash, LockId, PublicKey,
+    Vote, NATIVE_TOKEN_ID,
 };
 use seloria_state::{ChainState, Storage};
 use tracing::{debug, info};
@@ -160,8 +160,13 @@ pub fn settle_claim<S: Storage>(state: &mut ChainState<S>, claim_id: &Hash) -> R
         }
 
         // Apply balance change (settlement already calculated the final amounts)
-        let account = state.get_or_create_account(pubkey);
-        account.balance = (account.balance as i64 + *change) as u64;
+        if *change >= 0 {
+            let account = state.get_or_create_account(pubkey);
+            account.credit(&NATIVE_TOKEN_ID, *change as u64);
+        } else {
+            let amount = (-*change) as u64;
+            state.debit_token(pubkey, &NATIVE_TOKEN_ID, amount)?;
+        }
 
         debug!(
             "Settlement: {} balance adjusted by {}",
@@ -218,7 +223,7 @@ mod tests {
     #[test]
     fn test_claim_create() {
         let (mut state, creator, _, _) = setup_state_with_agents();
-        state.get_or_create_account(&creator.public).balance = 10000;
+        state.credit_token(&creator.public, &NATIVE_TOKEN_ID, 10000);
 
         let payload_hash = hash_blake3(b"test payload");
         let claim_id = execute_claim_create(
@@ -245,8 +250,8 @@ mod tests {
     #[test]
     fn test_attestation() {
         let (mut state, creator, attester, _) = setup_state_with_agents();
-        state.get_or_create_account(&creator.public).balance = 10000;
-        state.get_or_create_account(&attester.public).balance = 10000;
+        state.credit_token(&creator.public, &NATIVE_TOKEN_ID, 10000);
+        state.credit_token(&attester.public, &NATIVE_TOKEN_ID, 10000);
 
         let payload_hash = hash_blake3(b"test payload");
         let claim_id = execute_claim_create(
@@ -269,8 +274,8 @@ mod tests {
     #[test]
     fn test_claim_finalization_yes() {
         let (mut state, creator, attester, _) = setup_state_with_agents();
-        state.get_or_create_account(&creator.public).balance = 10000;
-        state.get_or_create_account(&attester.public).balance = 10000;
+        state.credit_token(&creator.public, &NATIVE_TOKEN_ID, 10000);
+        state.credit_token(&attester.public, &NATIVE_TOKEN_ID, 10000);
 
         let payload_hash = hash_blake3(b"test payload");
         let claim_id = execute_claim_create(
@@ -296,9 +301,9 @@ mod tests {
     #[test]
     fn test_claim_finalization_no() {
         let (mut state, creator, attester1, attester2) = setup_state_with_agents();
-        state.get_or_create_account(&creator.public).balance = 10000;
-        state.get_or_create_account(&attester1.public).balance = 10000;
-        state.get_or_create_account(&attester2.public).balance = 10000;
+        state.credit_token(&creator.public, &NATIVE_TOKEN_ID, 10000);
+        state.credit_token(&attester1.public, &NATIVE_TOKEN_ID, 10000);
+        state.credit_token(&attester2.public, &NATIVE_TOKEN_ID, 10000);
 
         let payload_hash = hash_blake3(b"test payload");
         let claim_id = execute_claim_create(
@@ -324,8 +329,8 @@ mod tests {
     #[test]
     fn test_double_attestation() {
         let (mut state, creator, attester, _) = setup_state_with_agents();
-        state.get_or_create_account(&creator.public).balance = 10000;
-        state.get_or_create_account(&attester.public).balance = 10000;
+        state.credit_token(&creator.public, &NATIVE_TOKEN_ID, 10000);
+        state.credit_token(&attester.public, &NATIVE_TOKEN_ID, 10000);
 
         let payload_hash = hash_blake3(b"test payload");
         let claim_id = execute_claim_create(

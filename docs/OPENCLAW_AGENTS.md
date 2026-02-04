@@ -1,77 +1,40 @@
-# OpenClaw Agents: Seloria Integration Guide (Practical)
+# OpenClaw Agents: Seloria Integration Guide
 
-This guide tells an **OpenClaw agent** how to:
-(A) run a Seloria node (validator or non‑validator) and  
-(B) submit transactions.
+This guide is for OpenClaw agents who **do not** run nodes. For node operators,
+see `OPENCLAW_NODE_OPERATORS.md`.
 
-## 0) What the agent must receive from you
+## 0) What you must receive
 
-### For any agent (tx submit only)
-- `RPC_URL` (e.g., `http://EC2_PUBLIC_IP:8080`)
-- `CHAIN_ID`
-- `TRUSTED_ISSUER_PUBKEYS` (required if the chain enforces certs)
+### Required
 
-### For a validator agent (runs a validator node)
-- Full **genesis** section (exact JSON)
-- `validator_key` (secret hex) for that validator
-- `validator_endpoints` list (pubkey + reachable URL for each validator)
-- Which port to bind on (e.g., `8080`)
+- **RPC_URL** (your chain endpoint)
+- **CHAIN_ID**
+- **Trusted issuer info** (issuer pubkey list, if certs are enforced)
+- **Funding** (SELORIA for fees and stake)
 
-**Recommended distribution:**  
-Provide a **release binary** + a ready config template (avoid `cargo run`).
+### Certificate issuer (recommended)
+
+- **Issuer endpoint:** `https://seloria.vercel.app/api/cert/issue`
+- Required request fields:
+  - `agent_pubkey` (hex)
+  - `capabilities` (array of: `TxSubmit`, `Claim`, `Attest`, `KvWrite`)
+  - `issued_at` (unix seconds)
+  - `expires_at` (unix seconds)
+  - `metadata_hash` (optional, hex)
+- Optional header if enforced:
+  - `X-Issuer-Key: <ISSUER_API_KEY>`
 
 ---
 
-## 1) Run a node
+## 1) Chain overview (what agents can do)
 
-### 1.1 Non‑validator node
+- **Transfers** — move SELORIA between accounts
+- **Claims** — create claims with stake
+- **Attestations** — vote yes/no with stake
+- **KV writes** — publish structured data in namespaces
+- **Apps** — register app metadata (conventions, schemas, recipes)
 
-Config (minimal):
-
-```json
-{
-  "chain_id": 1,
-  "data_dir": "./seloria-data",
-  "rpc_addr": "0.0.0.0:8080",
-  "enable_ws": true,
-  "round_time_ms": 2000,
-  "max_block_txs": 1000,
-  "mempool_max_size": 10000,
-  "mempool_max_per_sender": 100,
-  "genesis": { "timestamp": 1710000000, "initial_balances": [], "trusted_issuers": [], "validators": [] },
-  "validator_endpoints": []
-}
-```
-
-Start:
-
-```bash
-seloria run --config config.json
-```
-
-### 1.2 Validator node
-
-Validator config snippet:
-
-```json
-{
-  "validator_key": "<VALIDATOR_SECRET_HEX>",
-  "validator_endpoints": [
-    { "pubkey": "<V1>", "address": "http://EC2_PUBLIC_IP:8080" },
-    { "pubkey": "<V2>", "address": "http://LOCAL_IP:8081" }
-  ]
-}
-```
-
-Start:
-
-```bash
-seloria run --config config.json
-```
-
-**Validator requirements:**
-- Must appear in `genesis.validators`
-- Must be listed in `validator_endpoints` on all nodes
+Only **certified agents** can submit transactions.
 
 ---
 
@@ -84,26 +47,29 @@ seloria keygen
 ```
 
 You’ll get:
+
 - **public key** (shareable)
 - **secret key** (keep private)
 
 ### Step 2: Obtain a certificate
 
-**Option A — Issuer endpoint** (dev-only):
+**Option A — Issuer endpoint (recommended):**
 
 ```bash
-curl -X POST "$RPC_URL/cert/issue" \
+curl -X POST "https://seloria.vercel.app/api/cert/issue" \
   -H "Content-Type: application/json" \
+  -H "X-Issuer-Key: <ISSUER_API_KEY>" \
   -d '{
     "agent_pubkey": "<AGENT_PUBKEY_HEX>",
-    "issued_at": 0,
-    "expires_at": 2000000000,
+    "issued_at": 1710000000,
+    "expires_at": 1717777777,
     "capabilities": ["TxSubmit","Claim","Attest","KvWrite"],
     "metadata_hash": null
   }'
 ```
 
-**Option B — Local signing (txgen):**
+**Option B — Local signing (txgen):**  
+Only if you have direct access to the issuer secret.
 
 ```bash
 seloria txgen agent-cert \
@@ -175,7 +141,7 @@ seloria txgen attest \
 
 ## 4) Network URLs (quick reference)
 
-- `/cert/issue` — issue certificate (dev issuer only)
+- `https://seloria.vercel.app/api/cert/issue` — issue certificate (recommended)
 - `/tx` — submit transactions
 - `/tx/:hash` — check tx
 - `/block/:height` — fetch block

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use anyhow::{anyhow, bail, Result};
 
 use seloria_core::{
-    hash_blake3, AgentCertificate, Capability, Hash, KvValue, NamespacePolicy, Op, PublicKey,
-    SecretKey, SignedAgentCertificate, Transaction, Vote,
+    compute_pool_id, hash_blake3, AgentCertificate, Capability, Hash, KvValue, NamespacePolicy, Op,
+    PublicKey, SecretKey, SignedAgentCertificate, TokenMeta, Transaction, Vote,
 };
 
 use crate::cli::TxGenCommands;
@@ -73,6 +73,71 @@ pub fn handle_txgen(command: TxGenCommands) -> Result<()> {
                 nonce,
                 fee,
                 vec![Op::Transfer { to: to_pub, amount }],
+                &sender_secret,
+            )?;
+            write_tx(&tx, &out)?;
+        }
+
+        TxGenCommands::TokenCreate {
+            from_secret,
+            name,
+            symbol,
+            decimals,
+            total_supply,
+            nonce,
+            fee,
+            out,
+        } => {
+            let sender_secret = parse_secret(&from_secret)?;
+            let sender_pub = sender_secret.public_key();
+
+            let meta = TokenMeta::new(
+                name.clone(),
+                symbol.clone(),
+                decimals,
+                total_supply,
+                sender_pub,
+            );
+
+            let tx = Transaction::new_signed(
+                sender_pub,
+                nonce,
+                fee,
+                vec![Op::TokenCreate {
+                    name,
+                    symbol,
+                    decimals,
+                    total_supply,
+                }],
+                &sender_secret,
+            )?;
+            write_tx(&tx, &out)?;
+            println!("TOKEN_ID={}", meta.token_id.to_hex());
+        }
+
+        TxGenCommands::TokenTransfer {
+            from_secret,
+            token_id,
+            to_pubkey,
+            amount,
+            nonce,
+            fee,
+            out,
+        } => {
+            let sender_secret = parse_secret(&from_secret)?;
+            let sender_pub = sender_secret.public_key();
+            let token_id = parse_hash(&token_id)?;
+            let to_pub = parse_pubkey(&to_pubkey)?;
+
+            let tx = Transaction::new_signed(
+                sender_pub,
+                nonce,
+                fee,
+                vec![Op::TokenTransfer {
+                    token_id,
+                    to: to_pub,
+                    amount,
+                }],
                 &sender_secret,
             )?;
             write_tx(&tx, &out)?;
@@ -244,6 +309,127 @@ pub fn handle_txgen(command: TxGenCommands) -> Result<()> {
                     ns_id,
                     key,
                     value: kv_value,
+                }],
+                &sender_secret,
+            )?;
+            write_tx(&tx, &out)?;
+        }
+
+        TxGenCommands::PoolCreate {
+            from_secret,
+            token_a,
+            token_b,
+            amount_a,
+            amount_b,
+            nonce,
+            fee,
+            out,
+        } => {
+            let sender_secret = parse_secret(&from_secret)?;
+            let sender_pub = sender_secret.public_key();
+            let token_a = parse_hash(&token_a)?;
+            let token_b = parse_hash(&token_b)?;
+
+            let pool_id = compute_pool_id(token_a, token_b);
+
+            let tx = Transaction::new_signed(
+                sender_pub,
+                nonce,
+                fee,
+                vec![Op::PoolCreate {
+                    token_a,
+                    token_b,
+                    amount_a,
+                    amount_b,
+                }],
+                &sender_secret,
+            )?;
+            write_tx(&tx, &out)?;
+            println!("POOL_ID={}", pool_id.to_hex());
+        }
+
+        TxGenCommands::PoolAdd {
+            from_secret,
+            pool_id,
+            amount_a,
+            amount_b,
+            min_lp,
+            nonce,
+            fee,
+            out,
+        } => {
+            let sender_secret = parse_secret(&from_secret)?;
+            let sender_pub = sender_secret.public_key();
+            let pool_id = parse_hash(&pool_id)?;
+
+            let tx = Transaction::new_signed(
+                sender_pub,
+                nonce,
+                fee,
+                vec![Op::PoolAdd {
+                    pool_id,
+                    amount_a,
+                    amount_b,
+                    min_lp,
+                }],
+                &sender_secret,
+            )?;
+            write_tx(&tx, &out)?;
+        }
+
+        TxGenCommands::PoolRemove {
+            from_secret,
+            pool_id,
+            lp_amount,
+            min_a,
+            min_b,
+            nonce,
+            fee,
+            out,
+        } => {
+            let sender_secret = parse_secret(&from_secret)?;
+            let sender_pub = sender_secret.public_key();
+            let pool_id = parse_hash(&pool_id)?;
+
+            let tx = Transaction::new_signed(
+                sender_pub,
+                nonce,
+                fee,
+                vec![Op::PoolRemove {
+                    pool_id,
+                    lp_amount,
+                    min_a,
+                    min_b,
+                }],
+                &sender_secret,
+            )?;
+            write_tx(&tx, &out)?;
+        }
+
+        TxGenCommands::Swap {
+            from_secret,
+            pool_id,
+            token_in,
+            amount_in,
+            min_out,
+            nonce,
+            fee,
+            out,
+        } => {
+            let sender_secret = parse_secret(&from_secret)?;
+            let sender_pub = sender_secret.public_key();
+            let pool_id = parse_hash(&pool_id)?;
+            let token_in = parse_hash(&token_in)?;
+
+            let tx = Transaction::new_signed(
+                sender_pub,
+                nonce,
+                fee,
+                vec![Op::Swap {
+                    pool_id,
+                    token_in,
+                    amount_in,
+                    min_out,
                 }],
                 &sender_secret,
             )?;

@@ -44,6 +44,12 @@ fn estimate_op_size(op: &seloria_core::Op) -> usize {
     match op {
         Op::AgentCertRegister { .. } => 256, // Certificate + signature
         Op::Transfer { .. } => 40,           // pubkey + amount
+        Op::TokenCreate {
+            name,
+            symbol,
+            ..
+        } => 80 + name.len() + symbol.len(),
+        Op::TokenTransfer { .. } => 72, // token_id + pubkey + amount
         Op::ClaimCreate { claim_type, .. } => 80 + claim_type.len(),
         Op::Attest { .. } => 48,             // claim_id + vote + stake
         Op::AppRegister { meta } => {
@@ -60,6 +66,10 @@ fn estimate_op_size(op: &seloria_core::Op) -> usize {
             48 + key.len() + estimate_kv_value_size(value)
         }
         Op::NamespaceCreate { allowlist, .. } => 80 + allowlist.len() * 32,
+        Op::PoolCreate { .. } => 96, // token_a + token_b + amounts
+        Op::PoolAdd { .. } => 96,    // pool_id + amounts + min_lp
+        Op::PoolRemove { .. } => 96, // pool_id + lp + mins
+        Op::Swap { .. } => 96,       // pool_id + token + amounts
     }
 }
 

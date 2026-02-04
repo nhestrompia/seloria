@@ -41,6 +41,21 @@ pub enum VmError {
     #[error("App already exists: {0}")]
     AppExists(String),
 
+    #[error("Token not found: {0}")]
+    TokenNotFound(String),
+
+    #[error("Token already exists: {0}")]
+    TokenExists(String),
+
+    #[error("Pool not found: {0}")]
+    PoolNotFound(String),
+
+    #[error("Pool already exists: {0}")]
+    PoolExists(String),
+
+    #[error("Slippage exceeded")]
+    SlippageExceeded,
+
     #[error("Key not found: {0}")]
     KeyNotFound(String),
 

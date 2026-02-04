@@ -7,6 +7,7 @@ use crate::types::agent_cert::SignedAgentCertificate;
 use crate::types::app::AppMeta;
 use crate::types::claim::Vote;
 use crate::types::namespace::KvValue;
+use crate::types::token::NATIVE_TOKEN_ID;
 
 /// Operations that can be included in a transaction
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +18,19 @@ pub enum Op {
     },
     /// Transfer tokens to another account
     Transfer {
+        to: PublicKey,
+        amount: u64,
+    },
+    /// Create a new fixed-supply token
+    TokenCreate {
+        name: String,
+        symbol: String,
+        decimals: u8,
+        total_supply: u64,
+    },
+    /// Transfer a token to another account
+    TokenTransfer {
+        token_id: Hash,
         to: PublicKey,
         amount: u64,
     },
@@ -35,6 +49,34 @@ pub enum Op {
     /// Register an application
     AppRegister {
         meta: AppMeta,
+    },
+    /// Create a new AMM pool with initial liquidity
+    PoolCreate {
+        token_a: Hash,
+        token_b: Hash,
+        amount_a: u64,
+        amount_b: u64,
+    },
+    /// Add liquidity to an existing AMM pool
+    PoolAdd {
+        pool_id: Hash,
+        amount_a: u64,
+        amount_b: u64,
+        min_lp: u64,
+    },
+    /// Remove liquidity from an AMM pool
+    PoolRemove {
+        pool_id: Hash,
+        lp_amount: u64,
+        min_a: u64,
+        min_b: u64,
+    },
+    /// Swap tokens in an AMM pool
+    Swap {
+        pool_id: Hash,
+        token_in: Hash,
+        amount_in: u64,
+        min_out: u64,
     },
     /// Put a key-value pair in a namespace
     KvPut {
@@ -154,6 +196,29 @@ impl Transaction {
                 Op::Transfer { amount, .. } => cost += amount,
                 Op::ClaimCreate { stake, .. } => cost += stake,
                 Op::Attest { stake, .. } => cost += stake,
+                Op::PoolCreate {
+                    token_a,
+                    token_b,
+                    amount_a,
+                    amount_b,
+                } => {
+                    if *token_a == NATIVE_TOKEN_ID {
+                        cost += *amount_a;
+                    }
+                    if *token_b == NATIVE_TOKEN_ID {
+                        cost += *amount_b;
+                    }
+                }
+                Op::PoolAdd { .. } => {}
+                Op::Swap {
+                    token_in,
+                    amount_in,
+                    ..
+                } => {
+                    if *token_in == NATIVE_TOKEN_ID {
+                        cost += *amount_in;
+                    }
+                }
                 _ => {}
             }
         }

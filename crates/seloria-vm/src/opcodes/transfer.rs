@@ -40,7 +40,7 @@ mod tests {
         let alice = KeyPair::generate();
         let bob = KeyPair::generate();
 
-        state.get_or_create_account(&alice.public).balance = 1000;
+        state.credit_token(&alice.public, &seloria_core::NATIVE_TOKEN_ID, 1000);
 
         execute_transfer(&mut state, &alice.public, &bob.public, 300).unwrap();
 
@@ -54,7 +54,7 @@ mod tests {
         let alice = KeyPair::generate();
         let bob = KeyPair::generate();
 
-        state.get_or_create_account(&alice.public).balance = 100;
+        state.credit_token(&alice.public, &seloria_core::NATIVE_TOKEN_ID, 100);
 
         let result = execute_transfer(&mut state, &alice.public, &bob.public, 500);
         assert!(matches!(result, Err(VmError::InsufficientBalance { .. })));
@@ -65,7 +65,7 @@ mod tests {
         let mut state = ChainState::new(MemoryStorage::new());
         let alice = KeyPair::generate();
 
-        state.get_or_create_account(&alice.public).balance = 1000;
+        state.credit_token(&alice.public, &seloria_core::NATIVE_TOKEN_ID, 1000);
 
         execute_transfer(&mut state, &alice.public, &alice.public, 300).unwrap();
 
